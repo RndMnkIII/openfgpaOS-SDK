@@ -1,0 +1,5 @@
+*.o
+*.elf
+app_pc
+save_*.bin
+os.bin
