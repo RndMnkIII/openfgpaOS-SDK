@@ -114,6 +114,15 @@ if [ -d "$SDK_DIR/dist/sdk/instances" ]; then
 fi
 
 
+# ── Standalone game cores (build/<name>/ excluding sdk/) ─────────
+for coredir in "$SDK_DIR/build"/*/; do
+    name=$(basename "$coredir")
+    [ "$name" = "sdk" ] && continue
+    [ ! -d "$coredir/Cores" ] && continue
+    cp -r "$coredir"/* "$SDCARD/"
+    echo -e "  ${GREEN}✓${RESET} Standalone core: $name"
+done
+
 # ── Sync ──────────────────────────────────────────────────────────
 sync
 

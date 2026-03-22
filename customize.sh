@@ -14,7 +14,7 @@ set -e
 
 # ── Defaults ────────────────────────────────────────────────────────
 AUTHOR="ThinkElastic"
-PLATFORM="openfpgaos"
+PLATFORM=""
 VERSION="1.0.0"
 DATE=$(date +%Y-%m-%d)
 SAVES=10
@@ -131,6 +131,7 @@ if [[ $BATCH -eq 0 ]]; then
     SHORT=$(ask "Short name (no spaces)" "${SHORT:-$default_short}")
     AUTHOR=$(ask "Author" "$AUTHOR")
     VERSION=$(ask "Version" "$VERSION")
+    [[ -z "$PLATFORM" ]] && PLATFORM=$(echo "$SHORT" | tr '[:upper:]' '[:lower:]')
     PLATFORM=$(ask "Platform ID" "$PLATFORM")
     echo
 
@@ -192,6 +193,7 @@ fi
 [[ -z "$NAME" ]] && { echo "Error: --name required"; exit 1; }
 [[ -z "$ELF" ]]  && { echo "Error: --elf required"; exit 1; }
 [[ -z "$SHORT" ]] && SHORT=$(derive_short "$NAME")
+[[ -z "$PLATFORM" ]] && PLATFORM=$(echo "$SHORT" | tr '[:upper:]' '[:lower:]')
 [[ -z "$OUTPUT" ]] && OUTPUT="dist/$SHORT"
 
 CORE_ID="${AUTHOR}.${SHORT}"
@@ -216,10 +218,12 @@ ASSETS_INSTANCE="$OUTPUT/Assets/$PLATFORM/$CORE_ID"
 PLATFORMS_DIR="$OUTPUT/Platforms"
 SAVES_DIR="$OUTPUT/Saves/$PLATFORM/common"
 
-rm -rf "$OUTPUT"
-mkdir -p "$CORE_DIR" "$ASSETS_COMMON" "$ASSETS_INSTANCE" "$PLATFORMS_DIR/_images" "$SAVES_DIR"
+mkdir -p "$CORE_DIR" "$ASSETS_COMMON" "$PLATFORMS_DIR/_images"
 
 # ── Generate core.json ─────────────────────────────────────────────
+if [[ -f "$CORE_DIR/core.json" ]]; then
+    ok "core.json already exists, skipping"
+else
 cat > "$CORE_DIR/core.json" << ENDJSON
 {
     "core": {
@@ -237,33 +241,31 @@ cat > "$CORE_DIR/core.json" << ENDJSON
             "target_product": "Analogue Pocket",
             "version_required": "2.2",
             "sleep_supported": false,
-            "chip32_vm": "loader.bin",
             "dock": { "supported": true, "analog_output": false },
             "hardware": { "link_port": true, "cartridge_adapter": 0 }
         },
         "cores": [
-            { "name": "default", "id": 0, "filename": "bitstream.rbf_r" }
+            { "name": "default", "id": 0, "filename": "bitstream.rbf_r", "chip32_vm": "loader.bin" }
         ]
     }
 }
 ENDJSON
 ok "Generated core.json"
+fi
 
-# ── Generate data.json ─────────────────────────────────────────────
-# Build data slots array
+# ── Generate data.json (filenames directly, no instance selector) ──
+if [[ -f "$CORE_DIR/data.json" ]]; then
+    ok "data.json already exists, skipping"
+else
+sname=$(echo "$SHORT" | tr '[:upper:]' '[:lower:]')
+
 DATA_SLOTS='[
-            {
-                "id": 9,
-                "name": "Game",
-                "required": true,
-                "parameters": 275,
-                "extensions": ["json"]
-            },
             {
                 "id": 1,
                 "name": "OS Binary",
                 "required": false,
                 "parameters": 0,
+                "filename": "os.bin",
                 "extensions": ["bin"],
                 "deferload": true
             },
@@ -272,6 +274,7 @@ DATA_SLOTS='[
                 "name": "Application",
                 "required": false,
                 "parameters": 0,
+                "filename": "'"$ELF_NAME"'",
                 "extensions": ["elf"],
                 "deferload": true
             }'
@@ -280,12 +283,14 @@ DATA_SLOTS='[
 slot_id=3
 for df in "${DATA_FILES[@]}"; do
     ext="${df##*.}"
+    dfname=$(basename "$df")
     DATA_SLOTS="$DATA_SLOTS,"'
             {
                 "id": '"$slot_id"',
                 "name": "Data '"$((slot_id - 2))"'",
                 "required": false,
                 "parameters": 0,
+                "filename": "'"$dfname"'",
                 "extensions": ["'"$ext"'"],
                 "deferload": true
             }'
@@ -299,7 +304,7 @@ for i in $(seq 0 $((SAVES - 1))); do
     sid=$((10 + i))
     addr=$(printf "0x%08X" $SAVE_ADDR)
     DATA_SLOTS="$DATA_SLOTS,"'
-            { "id": '"$sid"', "name": "Save '"$i"'", "required": false, "parameters": "0x85", "nonvolatile": true, "address": "'"$addr"'", "size_maximum": "'"$SAVE_SIZE"'", "extensions": ["sav"] }'
+            { "id": '"$sid"', "name": "Save '"$i"'", "required": false, "parameters": "0x85", "nonvolatile": true, "address": "'"$addr"'", "size_maximum": "'"$SAVE_SIZE"'", "filename": "'"${sname}_${i}.sav"'", "extensions": ["sav"] }'
     SAVE_ADDR=$((SAVE_ADDR + 0x40000))
 done
 
@@ -312,41 +317,8 @@ cat > "$CORE_DIR/data.json" << ENDJSON
     }
 }
 ENDJSON
-ok "Generated data.json ($SAVES save slots)"
-
-# ── Generate instance JSON ─────────────────────────────────────────
-INSTANCE_SLOTS='[
-            { "id": 1, "filename": "os.bin" },
-            { "id": 2, "filename": "'"$ELF_NAME"'" }'
-
-# Add data file references
-slot_id=3
-for df in "${DATA_FILES[@]}"; do
-    INSTANCE_SLOTS="$INSTANCE_SLOTS,"'
-            { "id": '"$slot_id"', "filename": "'"$(basename "$df")"'" }'
-    slot_id=$((slot_id + 1))
-    [[ $slot_id -gt 6 ]] && break
-done
-
-# Add save slot references
-for i in $(seq 0 $((SAVES - 1))); do
-    sid=$((10 + i))
-    sname=$(echo "$SHORT" | tr '[:upper:]' '[:lower:]')
-    INSTANCE_SLOTS="$INSTANCE_SLOTS,"'
-            { "id": '"$sid"', "filename": "'"${sname}_${i}.sav"'" }'
-done
-
-cat > "$ASSETS_INSTANCE/${SHORT}.json" << ENDJSON
-{
-    "instance": {
-        "magic": "APF_VER_1",
-        "variant_select": { "id": 666, "select": false },
-        "data_slots": $INSTANCE_SLOTS
-        ]
-    }
-}
-ENDJSON
-ok "Generated instance JSON"
+ok "Generated data.json ($SAVES save slots, no instance needed)"
+fi
 
 # ── Copy shared JSON configs ──────────────────────────────────────
 DIST_DIR=""
@@ -363,12 +335,27 @@ if [[ -n "$DIST_DIR" ]]; then
     done
     ok "Copied shared JSON configs"
 
-    # Platform files
-    if [[ -f "$DIST_DIR/platforms/${PLATFORM}.json" ]]; then
+    # Platform files — copy existing or generate (don't overwrite)
+    if [[ -f "$PLATFORMS_DIR/${PLATFORM}.json" ]]; then
+        ok "Platform JSON already exists, skipping"
+    elif [[ -f "$DIST_DIR/platforms/${PLATFORM}.json" ]]; then
         cp "$DIST_DIR/platforms/${PLATFORM}.json" "$PLATFORMS_DIR/"
         [[ -f "$DIST_DIR/platforms/_images/${PLATFORM}.bin" ]] && \
             cp "$DIST_DIR/platforms/_images/${PLATFORM}.bin" "$PLATFORMS_DIR/_images/"
         ok "Copied platform files"
+    else
+        # Generate platform JSON for standalone core
+        cat > "$PLATFORMS_DIR/${PLATFORM}.json" << PLATJSON
+{
+    "platform": {
+        "category": "Computer",
+        "name": "$NAME",
+        "year": $(date +%Y),
+        "manufacturer": "$AUTHOR"
+    }
+}
+PLATJSON
+        ok "Generated platform: ${PLATFORM}.json"
     fi
 else
     warn "dist/ not found — audio/video/input/interact/variants JSONs not copied"
