@@ -135,41 +135,83 @@ After `customize.sh`, your game can be packaged as its own Pocket menu entry:
 
 Users extract the ZIP to their SD card root.
 
-## Updating
+## Creating Your Own Game Repo
 
-When a new SDK version is released:
+When your game is ready for its own repository:
+
+### 1. Create a new repo from the SDK
 
 ```bash
-git remote add upstream https://github.com/ThinkElastic/openfpgaOS-SDK.git
-git fetch upstream
-git rebase upstream/main
+# Clone the SDK as your game's starting point
+git clone https://github.com/ThinkElastic/openfpgaOS-SDK.git MyGame
+cd MyGame
+
+# Add the SDK as an upstream remote for future updates
+git remote rename origin sdk-upstream
+git remote add origin git@github.com:YOU/MyGame.git
+
+# Run customize to set up your game's core config
+./customize.sh
+```
+
+### 2. Develop your game
+
+Edit `src/<gamename>/main.c`, add source files, build with `make`.
+
+Your game source lives in `src/<gamename>/` — SDK files live in `src/sdk/`, `src/apps/`, `dist/sdk/`. They don't overlap.
+
+### 3. Pull SDK updates
+
+When the SDK is updated with new features or bug fixes:
+
+```bash
+git fetch sdk-upstream
+git merge sdk-upstream/main
 make clean && make
 ```
 
-Your game source (`src/<gamename>/`) won't conflict — SDK files are clearly separated.
+Only SDK-owned files change. Your game files (`Makefile`, `src/<gamename>/`, `dist/<GameName>/`) won't conflict.
+
+### 4. Package and distribute
+
+```bash
+make                          # build everything
+./package.sh                  # ZIPs SDK core + your standalone core
+./package.sh <GameName>       # ZIP just your standalone core
+```
+
+### What you change vs. what the SDK owns
+
+| Yours (edit freely) | SDK-owned (updated via merge) |
+|---------------------|-------------------------------|
+| `Makefile` | `src/sdk/` |
+| `src/<gamename>/` | `src/apps/` |
+| `dist/<GameName>/` | `dist/sdk/` |
+| `.gitignore` | `runtime/` |
+| | `customize.sh`, `deploy.sh`, `package.sh`, `setup.sh` |
 
 ## Project Structure
 
 ```
 openfpgaOS-SDK/
-├── Makefile              ← build all apps, create build/sdk/
+├── Makefile              ← YOUR file: build config
 ├── src/
 │   ├── <gamename>/       ← YOUR game source (created by customize.sh)
-│   ├── apps/             ← bundled example apps
-│   └── sdk/              ← headers, libc, CRT, build rules
+│   ├── apps/             ← bundled example apps (SDK-owned)
+│   └── sdk/              ← headers, libc, CRT, build rules (SDK-owned)
 │       ├── include/      ← openfpgaOS API (of.h, of_video.h, ...)
 │       ├── libc/         ← C standard library wrappers
 │       ├── crt/          ← startup code + linker script
 │       └── pc/           ← SDL2 shim for desktop builds
 ├── dist/
-│   ├── sdk/              ← shared core configs
-│   └── <gamename>/       ← standalone game core (from customize.sh)
-├── runtime/              ← FPGA bitstream, OS binary, loader
+│   ├── sdk/              ← shared openfpgaOS core configs (SDK-owned)
+│   └── <GameName>/       ← YOUR standalone core (from customize.sh)
+├── runtime/              ← FPGA bitstream, OS binary, loader (SDK-owned)
 ├── build/                ← build output (gitignored)
-├── customize.sh
-├── deploy.sh
-├── package.sh
-└── setup.sh
+├── customize.sh          ← create new game core (SDK-owned)
+├── deploy.sh             ← deploy to SD card (SDK-owned)
+├── package.sh            ← create release ZIPs (SDK-owned)
+└── setup.sh              ← toolchain check (SDK-owned)
 ```
 
 ## Reference
