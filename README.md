@@ -142,17 +142,13 @@ When your game is ready for its own repository:
 ### 1. Create a new repo from the SDK
 
 ```bash
-# Clone the SDK as your game's starting point
 git clone https://github.com/ThinkElastic/openfpgaOS-SDK.git MyGame
 cd MyGame
-
-# Add the SDK as an upstream remote for future updates
-git remote rename origin sdk-upstream
+./customize.sh    # creates game config + renames origin to sdk-upstream
 git remote add origin git@github.com:YOU/MyGame.git
-
-# Run customize to set up your game's core config
-./customize.sh
 ```
+
+`customize.sh` automatically renames `origin` to `sdk-upstream` so you can track SDK updates while using `origin` for your own repo.
 
 ### 2. Develop your game
 
