@@ -14,7 +14,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
-#include <SDL2/SDL.h>
 
 #include "of.h"
 #include "celeste.h"
@@ -251,13 +250,8 @@ static void p8_map(int mx, int my, int tx, int ty, int mw, int mh, int mask,
 #define OFS_X ((SCREEN_W - P8_W * SCALE) / 2)   /* (320 - 256) / 2 = 32 */
 #define OFS_Y ((SCREEN_H - P8_H * SCALE) / 2)   /* (240 - 256) / 2 = -8 */
 
-static SDL_Window *win;
-static SDL_Surface *screen;
-
 static void present(void) {
-    screen = SDL_GetWindowSurface(win);  /* refresh after flip */
-    uint8_t *fb = (uint8_t *)screen->pixels;
-    int pitch = screen->pitch;
+    uint8_t *fb = of_video_surface();
 
     for (int py = 0; py < P8_H; py++) {
         int dy = OFS_Y + py * SCALE;
@@ -267,12 +261,12 @@ static void present(void) {
             for (int px = 0; px < P8_W; px++) {
                 uint8_t col = p8_screen[py * P8_W + px];
                 int dx = OFS_X + px * SCALE;
-                fb[fy * pitch + dx]     = col;
-                fb[fy * pitch + dx + 1] = col;
+                fb[fy * SCREEN_W + dx]     = col;
+                fb[fy * SCREEN_W + dx + 1] = col;
             }
         }
     }
-    SDL_UpdateWindowSurface(win);
+    of_video_flip();
 }
 
 /* ======================================================================
@@ -280,29 +274,18 @@ static void present(void) {
  * ====================================================================== */
 
 static uint16_t buttons_state;
-static uint8_t key_held[256]; /* indexed by SDL_Scancode */
-
-static void poll_events(void) {
-    SDL_Event ev;
-    while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_KEYDOWN && !ev.key.repeat)
-            key_held[ev.key.keysym.scancode] = 1;
-        else if (ev.type == SDL_KEYUP)
-            key_held[ev.key.keysym.scancode] = 0;
-    }
-}
 
 /* PICO-8 buttons: 0=left, 1=right, 2=up, 3=down, 4=jump(z), 5=dash(x) */
 static void read_input(void) {
-    poll_events();
+    of_input_poll();
 
     buttons_state = 0;
-    if (key_held[SDL_SCANCODE_LEFT])   buttons_state |= (1 << 0);
-    if (key_held[SDL_SCANCODE_RIGHT])  buttons_state |= (1 << 1);
-    if (key_held[SDL_SCANCODE_UP])     buttons_state |= (1 << 2);
-    if (key_held[SDL_SCANCODE_DOWN])   buttons_state |= (1 << 3);
-    if (key_held[SDL_SCANCODE_Z])      buttons_state |= (1 << 4);  /* jump */
-    if (key_held[SDL_SCANCODE_X])      buttons_state |= (1 << 5);  /* dash */
+    if (of_btn(OF_BTN_LEFT))   buttons_state |= (1 << 0);
+    if (of_btn(OF_BTN_RIGHT))  buttons_state |= (1 << 1);
+    if (of_btn(OF_BTN_UP))     buttons_state |= (1 << 2);
+    if (of_btn(OF_BTN_DOWN))   buttons_state |= (1 << 3);
+    if (of_btn(OF_BTN_A))      buttons_state |= (1 << 4);  /* jump */
+    if (of_btn(OF_BTN_B))      buttons_state |= (1 << 5);  /* dash */
 }
 
 /* ======================================================================
@@ -470,21 +453,10 @@ static void osd_draw(void) {
  * ====================================================================== */
 
 int main(void) {
-    SDL_Init(SDL_INIT_VIDEO);
-    win = SDL_CreateWindow("Celeste",
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        SCREEN_W, SCREEN_H, SDL_WINDOW_SHOWN);
-    screen = SDL_GetWindowSurface(win);
+    of_video_init();
 
     /* Set up PICO-8 palette */
-    SDL_Color colors[16];
-    for (int i = 0; i < 16; i++) {
-        colors[i].r = (base_palette[i] >> 16) & 0xFF;
-        colors[i].g = (base_palette[i] >> 8) & 0xFF;
-        colors[i].b = base_palette[i] & 0xFF;
-        colors[i].a = 0xFF;
-    }
-    SDL_SetPaletteColors(screen->format->palette, colors, 0, 16);
+    of_video_palette_bulk(base_palette, 16);
 
     /* Load spritesheet and font */
     printf("Loading Celeste...\n");
@@ -493,7 +465,7 @@ int main(void) {
         printf("Error loading graphics!\n");
         printf("Place gfx.bmp and font.bmp\n");
         printf("in data/ directory.\n");
-        while (1) { SDL_Delay(100); }
+        while (1) { of_delay_ms(100); }
     }
 
     printf("OK!\n");
@@ -501,7 +473,7 @@ int main(void) {
     /* Initialize game */
     reset_palette();
     Celeste_P8_set_call_func(pico8emu);
-    Celeste_P8_set_rndseed(SDL_GetTicks());
+    Celeste_P8_set_rndseed(of_time_ms());
     Celeste_P8_init();
 
     /* Save initial state for reset */
@@ -511,19 +483,19 @@ int main(void) {
 
     /* Game loop (30fps) */
     while (1) {
-        uint32_t frame_start = SDL_GetTicks();
+        uint32_t frame_start = of_time_ms();
 
         read_input();
 
         /* Check for reset (hold SELECT+START for 1 second) */
         {
             static int reset_timer = 0;
-            if (key_held[SDL_SCANCODE_RSHIFT] && key_held[SDL_SCANCODE_RETURN]) {
+            if (of_btn(OF_BTN_SELECT) && of_btn(OF_BTN_START)) {
                 reset_timer++;
                 if (reset_timer >= 30 && initial_state) {
                     reset_timer = 0;
                     Celeste_P8_load_state(initial_state);
-                    Celeste_P8_set_rndseed(SDL_GetTicks());
+                    Celeste_P8_set_rndseed(of_time_ms());
                     Celeste_P8_init();
                     memcpy(osd_text, "reset", 6);
                     osd_timer = 30;
@@ -539,13 +511,13 @@ int main(void) {
         osd_draw();
 
         /* Clear framebuffer and blit scaled PICO-8 screen */
-        SDL_FillRect(screen, NULL, 0);
+        of_video_clear(0);
         present();
 
         /* Frame timing: ~33ms per frame for 30fps */
-        uint32_t elapsed = SDL_GetTicks() - frame_start;
+        uint32_t elapsed = of_time_ms() - frame_start;
         if (elapsed < 33)
-            SDL_Delay(33 - elapsed);
+            of_delay_ms(33 - elapsed);
     }
 
     return 0;

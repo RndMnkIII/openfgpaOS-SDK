@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 static int pass_count, fail_count, section_pass;
 static char __buf[80];
@@ -1080,6 +1082,289 @@ static void test_posix_saves(void) {
     section_end();
 }
 
+/* --- DMA Cache Coherency ---
+ * Validates that DMA data is visible to the CPU after read().
+ * Pre-fills a buffer with a known pattern, reads file data over it,
+ * then checks that the file data (not the pattern) is present.
+ * This catches stale D-cache lines surviving a DMA. */
+static void test_dma_cache(void) {
+    section_start("DMA Cache");
+
+    /* 8KB buffer — large enough to trigger the fast DMA path (>=4KB) */
+    static uint8_t buf_a[8192];
+    static uint8_t buf_b[8192];
+
+    /* Read first 8KB of os.bin as reference */
+    int fd = open("slot:1", O_RDONLY);
+    ASSERT("open", fd >= 0);
+    if (fd < 0) { section_end(); return; }
+
+    int n = read(fd, buf_a, 8192);
+    ASSERT_EQ("ref read", n, 8192);
+
+    /* Poison buf_b with a known pattern */
+    memset(buf_b, 0xAA, 8192);
+
+    /* Read same data into buf_b — DMA must overwrite the poison */
+    lseek(fd, 0, SEEK_SET);
+    n = read(fd, buf_b, 8192);
+    ASSERT_EQ("dma read", n, 8192);
+
+    /* buf_b must match buf_a, not the 0xAA poison */
+    ASSERT("no poison", buf_b[0] != 0xAA || buf_a[0] == 0xAA);
+    ASSERT("dma match", memcmp(buf_a, buf_b, 8192) == 0);
+
+    /* Repeat: poison, seek, read, verify — 5 times */
+    int repeat_ok = 1;
+    for (int i = 0; i < 5; i++) {
+        memset(buf_b, 0x55 + i, 8192);
+        lseek(fd, 0, SEEK_SET);
+        n = read(fd, buf_b, 8192);
+        if (n != 8192 || memcmp(buf_a, buf_b, 8192) != 0) {
+            int d = -1;
+            for (int j = 0; j < 8192; j++)
+                if (buf_a[j] != buf_b[j]) { d = j; break; }
+            snprintf(__buf, sizeof(__buf), "i=%d d@%d: %02x!=%02x poison=%02x",
+                     i, d, buf_b[d], buf_a[d], (uint8_t)(0x55 + i));
+            test_fail("5x dma", __buf);
+            repeat_ok = 0;
+            break;
+        }
+    }
+    if (repeat_ok) test_pass("5x dma");
+
+    /* Cross-offset DMA: read from offset 0, then 4096, then 0 again */
+    lseek(fd, 0, SEEK_SET);
+    read(fd, buf_a, 8192);  /* reference from offset 0 */
+
+    static uint8_t buf_c[8192];
+    lseek(fd, 4096, SEEK_SET);
+    read(fd, buf_c, 8192);  /* different data from offset 4096 */
+    ASSERT("cross diff", memcmp(buf_a, buf_c, 8192) != 0);
+
+    memset(buf_b, 0xBB, 8192);
+    lseek(fd, 0, SEEK_SET);
+    read(fd, buf_b, 8192);  /* back to offset 0 */
+    ASSERT("cross back", memcmp(buf_a, buf_b, 8192) == 0);
+
+    /* Large read: 64KB (exercises multiple DMA chunks if applicable) */
+    {
+        static uint8_t big_a[65536];
+        static uint8_t big_b[65536];
+        lseek(fd, 0, SEEK_SET);
+        int na = read(fd, big_a, 65536);
+        memset(big_b, 0xCC, 65536);
+        lseek(fd, 0, SEEK_SET);
+        int nb = read(fd, big_b, 65536);
+        ASSERT_EQ("64k a", na, 65536);
+        ASSERT_EQ("64k b", nb, 65536);
+        if (na == 65536 && nb == 65536)
+            ASSERT("64k match", memcmp(big_a, big_b, 65536) == 0);
+    }
+
+    close(fd);
+    section_end();
+}
+
+/* --- POSIX File I/O (open/read/lseek) ---
+ * Replicates Duke Nukem 3D's GRP file access pattern. */
+static void test_posix_file_io(void) {
+    section_start("POSIX File");
+
+    /* Step 1: open via POSIX open() */
+    int fd = open("slot:1", O_RDONLY);
+    ASSERT("open", fd >= 0);
+    if (fd < 0) { section_end(); return; }
+
+    /* Step 2: read header — first 16 bytes */
+    uint8_t hdr[16];
+    int n = read(fd, hdr, 16);
+    ASSERT_EQ("read hdr", n, 16);
+
+    /* Step 3: sequential read (simulates index load) */
+    uint8_t idx[256];
+    n = read(fd, idx, 256);
+    ASSERT_EQ("read idx", n, 256);
+    /* File position should now be 272 */
+
+    /* Step 4: rewind — Duke does this after loading the index */
+    lseek(fd, 0, SEEK_SET);
+
+    /* Verify rewind: re-read header must match */
+    uint8_t hdr2[16];
+    n = read(fd, hdr2, 16);
+    ASSERT_EQ("re-read hdr", n, 16);
+    ASSERT("hdr match", memcmp(hdr, hdr2, 16) == 0);
+
+    /* Verify sequential position after rewind+read: bytes 16..31
+     * should match idx[0..15] */
+    uint8_t seq_check[16];
+    n = read(fd, seq_check, 16);
+    ASSERT_EQ("seq after rw", n, 16);
+    ASSERT("seq data", memcmp(seq_check, idx, 16) == 0);
+
+    /* Step 5: basic seek+read consistency at offset 0 */
+    {
+        uint8_t r1[32], r2[32];
+        lseek(fd, 0, SEEK_SET);
+        int n1 = read(fd, r1, 32);
+        lseek(fd, 0, SEEK_SET);
+        int n2 = read(fd, r2, 32);
+        if (n1 != 32 || n2 != 32) {
+            snprintf(__buf, sizeof(__buf), "n1=%d n2=%d", n1, n2);
+            test_fail("seek0 read", __buf);
+        } else if (memcmp(r1, r2, 32) != 0) {
+            /* Diagnostic: show first differing byte */
+            int d = -1;
+            for (int i = 0; i < 32; i++) {
+                if (r1[i] != r2[i]) { d = i; break; }
+            }
+            snprintf(__buf, sizeof(__buf), "diff@%d: %02x!=%02x hdr0=%02x",
+                     d, r1[d], r2[d], hdr[0]);
+            test_fail("seek0 data", __buf);
+            /* Also check if r1 matches original header */
+            if (memcmp(r1, hdr, 16) == 0)
+                printf("\n    r1=hdr OK ");
+            else
+                printf("\n    r1!=hdr ");
+            if (memcmp(r2, hdr, 16) == 0)
+                printf("r2=hdr OK ");
+            else
+                printf("r2!=hdr ");
+        } else {
+            test_pass("seek0 data");
+        }
+        /* Check it matches original header */
+        ASSERT("seek0=hdr", memcmp(r1, hdr, 16) == 0);
+    }
+
+    /* Step 6: read at offset 1024 then back to 0 */
+    {
+        uint8_t a[32], b[32];
+        lseek(fd, 1024, SEEK_SET);
+        read(fd, a, 32);
+        lseek(fd, 0, SEEK_SET);
+        read(fd, b, 32);
+        ASSERT("1024!=0", memcmp(a, b, 32) != 0);
+        ASSERT("back to 0", memcmp(b, hdr, 16) == 0);
+    }
+
+    /* Step 7: cross read-ahead boundary (offset 4096+) */
+    {
+        uint8_t a[32], b[32];
+        lseek(fd, 8192, SEEK_SET);
+        read(fd, a, 32);
+        lseek(fd, 8192, SEEK_SET);
+        read(fd, b, 32);
+        ASSERT("8192 match", memcmp(a, b, 32) == 0);
+
+        /* Back to 0 after crossing boundary */
+        lseek(fd, 0, SEEK_SET);
+        read(fd, a, 16);
+        ASSERT("post-8192 hdr", memcmp(a, hdr, 16) == 0);
+    }
+
+    /* Step 8: repeated reads from offset 0 — find when data diverges */
+    {
+        uint8_t t[8][16];
+        for (int i = 0; i < 8; i++) {
+            lseek(fd, 0, SEEK_SET);
+            read(fd, t[i], 16);
+        }
+        int rep_ok = 1;
+        for (int i = 1; i < 8; i++) {
+            if (memcmp(t[0], t[i], 16) != 0) {
+                snprintf(__buf, sizeof(__buf), "read#%d: %02x%02x!=%02x%02x",
+                         i, t[i][0], t[i][1], t[0][0], t[0][1]);
+                test_fail("8x read0", __buf);
+                rep_ok = 0;
+                break;
+            }
+        }
+        if (rep_ok) test_pass("8x read0");
+        ASSERT("8x=hdr", memcmp(t[0], hdr, 16) == 0);
+    }
+
+    /* Step 9: seek to 4096 (outside ra_buf), then back to 0 — repeat */
+    {
+        uint8_t a[16], b[16];
+        int cross_ok = 1;
+        for (int i = 0; i < 10; i++) {
+            /* Read from beyond ra_buf range to force refill */
+            lseek(fd, 4096, SEEK_SET);
+            read(fd, a, 16);
+            /* Read back from 0 — must match header */
+            lseek(fd, 0, SEEK_SET);
+            read(fd, b, 16);
+            if (memcmp(b, hdr, 16) != 0) {
+                snprintf(__buf, sizeof(__buf), "i=%d: %02x%02x!=%02x%02x",
+                         i, b[0], b[1], hdr[0], hdr[1]);
+                test_fail("10x cross", __buf);
+                cross_ok = 0;
+                break;
+            }
+        }
+        if (cross_ok) test_pass("10x cross");
+    }
+
+    /* Step 10: original 9x loop — seek(X), read, seek(X), read, compare
+     * This is the pattern that was failing. Test both r1==r2 and r1==ref. */
+    {
+        uint32_t offsets[] = { 0, 1024, 512, 4096, 2048, 0, 8192, 256, 0 };
+        /* Capture reference data for each offset first */
+        uint8_t ref[9][32];
+        for (int i = 0; i < 9; i++) {
+            lseek(fd, offsets[i], SEEK_SET);
+            read(fd, ref[i], 32);
+        }
+        /* Now do the seek-seek-compare pattern */
+        int loop_ok = 1;
+        for (int i = 0; i < 9; i++) {
+            uint8_t r1[32], r2[32];
+            lseek(fd, offsets[i], SEEK_SET);
+            read(fd, r1, 32);
+            lseek(fd, offsets[i], SEEK_SET);
+            read(fd, r2, 32);
+            int r1_ref = (memcmp(r1, ref[i], 32) == 0);
+            int r2_ref = (memcmp(r2, ref[i], 32) == 0);
+            int r1_r2  = (memcmp(r1, r2, 32) == 0);
+            if (!r1_r2) {
+                snprintf(__buf, sizeof(__buf),
+                    "i=%d off=%lu r1=ref:%d r2=ref:%d",
+                    i, (unsigned long)offsets[i], r1_ref, r2_ref);
+                test_fail("9x loop", __buf);
+                loop_ok = 0;
+                break;
+            }
+        }
+        if (loop_ok) test_pass("9x loop");
+    }
+
+    /* Step 11: seek to various offsets then back to 0 */
+    {
+        uint32_t offsets[] = { 1024, 4096, 8192, 2048, 512, 16384, 256 };
+        uint8_t tmp[16], z[16];
+        int var_ok = 1;
+        for (int i = 0; i < 7; i++) {
+            lseek(fd, offsets[i], SEEK_SET);
+            read(fd, tmp, 16);
+            lseek(fd, 0, SEEK_SET);
+            read(fd, z, 16);
+            if (memcmp(z, hdr, 16) != 0) {
+                snprintf(__buf, sizeof(__buf), "off=%lu: %02x%02x!=%02x%02x",
+                         (unsigned long)offsets[i], z[0], z[1], hdr[0], hdr[1]);
+                test_fail("7x varied", __buf);
+                var_ok = 0;
+                break;
+            }
+        }
+        if (var_ok) test_pass("7x varied");
+    }
+
+    close(fd);
+    section_end();
+}
+
 /* --- Negative File Tests --- */
 static void test_file_negative(void) {
     section_start("File Neg");
@@ -1275,6 +1560,8 @@ int main(void) {
         test_file_io();
         test_saves();
         test_posix_saves();
+        test_dma_cache();
+        test_posix_file_io();
         test_shutdown();
         test_idle_hook();
         test_audio_ring();

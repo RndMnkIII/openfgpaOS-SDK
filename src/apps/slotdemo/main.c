@@ -14,7 +14,10 @@ static void draw_hline(int w, int sep, char left, char mid, char right) {
 }
 
 int main(void) {
-    /* FTAB auto-populates from Chip32 loader — no manual registration needed */
+    /* Register the slots this instance uses so the table has entries to show.
+     * In a real app, register your data files at startup so fopen() can find them. */
+    of_file_slot_register(1, "os.bin");
+    of_file_slot_register(2, "slotdemo.elf");
 
     printf("\033[2J\033[H");  /* clear screen, cursor home */
 

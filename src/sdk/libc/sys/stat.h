@@ -26,6 +26,8 @@ struct stat {
 #define S_IROTH 0004
 #define S_IWOTH 0002
 #define S_IXOTH 0001
+
+/* Legacy aliases */
 #define S_IREAD  S_IRUSR
 #define S_IWRITE S_IWUSR
 #define S_IEXEC  S_IXUSR

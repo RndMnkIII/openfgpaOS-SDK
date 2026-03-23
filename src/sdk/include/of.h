@@ -19,7 +19,7 @@
  *
  * Platform: Analogue Pocket FPGA, RISC-V (VexRiscv) @ 100 MHz
  * Video:    320x240, 8-bit indexed color, double-buffered
- * Audio:    YM2151 FM synthesis (8 channels) + 48 kHz PCM FIFO
+ * Audio:    YMF262 OPL3 FM synthesis (18 channels) + 48 kHz PCM FIFO
  * Input:    2 controllers, d-pad + ABXY + L/R + sticks + triggers
  * Memory:   64 MB SDRAM, 16 MB CRAM0, 16 MB CRAM1, 256 KB SRAM
  */
@@ -55,6 +55,7 @@
 #include "of_codec.h"
 #include "of_lzw.h"
 #include "of_bram.h"
+#include "of_midi.h"
 
 /* ======================================================================
  * System
