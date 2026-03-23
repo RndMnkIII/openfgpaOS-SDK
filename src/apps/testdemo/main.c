@@ -204,6 +204,7 @@ static void test_file_io(void) {
         fclose(f);
     }
 
+    printf("[B]");
     f = fopen("os.bin", "rb");
     ASSERT("os.bin", f != NULL);
     if (f) {
@@ -216,6 +217,7 @@ static void test_file_io(void) {
         fclose(f);
     }
 
+    printf("[C]");
     /* Repeated open/read/close — stress the fd table and bridge */
     int repeat_ok = 1;
     for (int i = 0; i < 20; i++) {
