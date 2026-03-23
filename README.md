@@ -121,14 +121,30 @@ The APF framework uses data slots to map files to bridge memory. The `data.json`
 | 1 | OS Binary | `os.bin` — loaded by bootloader via DMA |
 | 2 | Application | App ELF — loaded by OS kernel |
 | 3-6 | Data 1-4 | App data files (WAD, GRP, etc.) |
-| 7 | OS Data | CRAM1 region for OS file table (FTAB) |
 | 10-19 | Save 0-9 | Nonvolatile CRAM1 save slots (256KB each) |
 
 **Important:**
 - Slot 9 (Game selector) **must be the first entry** in `data.json` — the APF framework requires it
 - Slot 0 is reserved by APF — do not use
-- Slot 7 (OS Data) maps the CRAM1 region where Chip32 writes the filename-to-slot table (FTAB). This enables `fopen("filename.ext")` to resolve filenames to data slots automatically
 - Save slot addresses use bridge addressing (`0x30000000` = CRAM1), with 256KB stride
+
+### File I/O
+
+Apps register filenames at startup, then use standard C file I/O:
+
+```c
+/* Register data files (call once at startup) */
+of_file_slot_register(1, "os.bin");
+of_file_slot_register(3, "game.dat");
+
+/* Then use standard fopen */
+FILE *f = fopen("game.dat", "rb");  /* resolves to slot 3 */
+fread(buf, 1, size, f);
+fclose(f);
+
+/* Or access slots directly without registration */
+FILE *f = fopen("slot:3", "rb");
+```
 
 ### PC build
 
