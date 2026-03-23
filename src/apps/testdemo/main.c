@@ -165,9 +165,9 @@ static void test_malloc(void) {
 static void test_file_slots(void) {
     section_start("File Slots");
 
-    /* FTAB lives in FPGA registers at SYSREG+0x100 */
-    volatile uint32_t *ftab_count = (volatile uint32_t *)0x400001FC;
-    printf("\n  FTAB count reg: %d\n", (int)*ftab_count);
+    /* Register filenames for slots used by this app */
+    of_file_slot_register(1, "os.bin");
+    of_file_slot_register(2, "testdemo.elf");
 
     int count = of_file_slot_count();
     ASSERT("count >= 2", count >= 2);
