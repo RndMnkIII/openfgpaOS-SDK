@@ -39,7 +39,7 @@ struct camera {
 	float fov;
 };
 
-void render(int xsz, int ysz, uint16_t *fb, int samples);
+void render(int xsz, int ysz, int samples);
 void renderbuf(int xsz, int ysz, uint16_t *fb, int samples);
 struct vec3 trace(struct ray ray, int depth);
 struct vec3 shade(struct sphere *obj, struct spoint *sp, int depth);
@@ -107,14 +107,14 @@ int main(int argc, char **argv) {
 
     /* Clear framebuffer */
     uint16_t *fb = of_video_surface16();
-        for (int i = 0; i < xres  * yres; i++) fb[i] = 0;
+        for (int i = 0; i < xres  * yres*2; i++) fb[i] = 0;
 
 	//draw_string("rendering...", 0, 8, front_buffer);
     printf("rendering...\n");
 	create_scene();
 
 	start_time = of_time_ms(); //get_millisec();
-	renderbuf(xres, yres, fb, 1);
+	render(xres, yres, 1);
 	rend_time = of_time_ms(); - start_time;
 
 	//memcpy(back_buffer->pixels, front_buffer->pixels, xres * yres * sizeof(uint16_t));
@@ -156,7 +156,7 @@ int main(int argc, char **argv) {
 #define START_PSIZE		16
 
 /* render a frame of xsz/ysz dimensions into the provided framebuffer */
-void render(int xsz, int ysz, uint16_t *fb, int samples) {
+void render(int xsz, int ysz, int samples) {
 	int i, j, k, x, y;
 	uint16_t *fb16;
 	char *wbuf;
@@ -165,7 +165,8 @@ void render(int xsz, int ysz, uint16_t *fb, int samples) {
 	for(k=START_PSIZE; k>0; k>>=1) {
 		int scanoffs = (k - 1) * xsz;
 		
-		fb16 = (uint16_t*)fb;
+		//fb16 = (uint16_t*)fb;
+		fb16 = of_video_surface16();
 		wbuf = tmp;
 		for(j=0; j<ysz; j+=k) {
 			for(i=0; i<xsz; i+=k) {
@@ -201,6 +202,7 @@ void render(int xsz, int ysz, uint16_t *fb, int samples) {
 			fb16 += scanoffs;
 			wbuf += scanoffs;
 		}
+		of_video_flip();
 	}
 
 	free(tmp);
