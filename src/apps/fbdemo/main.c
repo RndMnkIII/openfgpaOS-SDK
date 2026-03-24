@@ -43,6 +43,7 @@ static int png_file_size(uint32_t *size_out) {
 
 int main(void) {
     of_video_init();
+    of_video_set_display_mode(OF_DISPLAY_OVERLAY);
 
     printf("Loading image...\n");
 
@@ -87,9 +88,36 @@ int main(void) {
 
     of_video_flip();
 
-    /* Idle loop */
+    /* Clear terminal and show overlay text on top of the image */
+    of_print_clear();
+    of_print_at(0, 0);
+    of_print("OVERLAY MODE - Press any button");
+
+    /* Cycle through display modes on each button press:
+     * 0=Terminal, 1=Framebuffer, 2=Overlay */
+    static const char *mode_names[] = {
+        "Terminal", "Framebuffer", "Overlay"
+    };
+    int mode = OF_DISPLAY_OVERLAY;  /* start in overlay */
+
+    /* Wait for menu button to be released */
+    for (int i = 0; i < 30; i++) {
+        of_input_poll();
+        of_delay_ms(16);
+    }
+
     while (1) {
-        of_delay_ms(100);
+        of_input_poll();
+        if (of_btn_pressed(OF_BTN_A) || of_btn_pressed(OF_BTN_B) ||
+            of_btn_pressed(OF_BTN_START)) {
+            mode = (mode + 1) % 3;
+            of_video_set_display_mode(mode);
+            of_print_clear();
+            of_print_at(0, 0);
+            of_print("Mode: ");
+            of_print(mode_names[mode]);
+        }
+        of_delay_ms(16);
     }
 
     return 0;
