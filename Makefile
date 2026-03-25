@@ -18,7 +18,7 @@ REL_PLATFORM = $(RELEASE)/Platforms
 RUNTIME      = runtime
 
 # ── Default target ───────────────────────────────────────────────
-all: apps release
+all: apps tools release
 
 # ── Build all bundled apps ───────────────────────────────────────
 apps:
@@ -70,9 +70,14 @@ release: apps
 deploy: release
 	@./deploy.sh
 
+# ── Build host tools ─────────────────────────────────────────────
+tools:
+	$(MAKE) -C src/tools/phdp
+
 # ── Clean ────────────────────────────────────────────────────────
 clean:
 	$(MAKE) -C src/apps clean
+	$(MAKE) -C src/tools/phdp clean
 	rm -rf build releases
 
 # ── Core packaging ───────────────────────────────────────────────
@@ -82,4 +87,4 @@ core:
 package:
 	./package.sh
 
-.PHONY: all apps release deploy clean core package
+.PHONY: all apps tools release deploy clean core package
