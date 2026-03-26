@@ -51,7 +51,7 @@ release: apps
 
 # ── Deploy to SD card ────────────────────────────────────────────
 deploy: release
-	@./deploy.sh
+	@./scripts/deploy.sh
 
 # ── Clean ────────────────────────────────────────────────────────
 clean:
@@ -60,9 +60,9 @@ clean:
 
 # ── Core packaging ───────────────────────────────────────────────
 core:
-	./customize.sh
+	./scripts/customize.sh
 
 package:
-	./package.sh
+	./scripts/package.sh
 
 .PHONY: all apps release deploy clean core package

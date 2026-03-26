@@ -6,8 +6,8 @@
 # as an independent core on the Analogue Pocket.
 #
 # Usage:
-#   ./customize.sh                 Interactive mode (prompts for each parameter)
-#   ./customize.sh --batch ...     Non-interactive mode (all parameters via flags)
+#   ./scripts/customize.sh                 Interactive mode (prompts for each parameter)
+#   ./scripts/customize.sh --batch ...     Non-interactive mode (all parameters via flags)
 #
 
 set -e
@@ -24,7 +24,7 @@ ICON=""
 OUTPUT=""
 NAME=""
 SHORT=""
-SDK_ROOT="$(cd "$(dirname "$0")" && pwd)"
+SDK_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME="$SDK_ROOT/runtime"
 BITSTREAM="$RUNTIME/bitstream.rbf_r"
 OS_BIN="$RUNTIME/os.bin"

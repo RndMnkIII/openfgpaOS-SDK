@@ -68,7 +68,7 @@ release: apps
 
 # ── Deploy to SD card ────────────────────────────────────────────
 deploy: release
-	@./deploy.sh
+	@./scripts/deploy.sh
 
 # ── Build host tools ─────────────────────────────────────────────
 tools:
@@ -82,9 +82,9 @@ clean:
 
 # ── Core packaging ───────────────────────────────────────────────
 core:
-	./customize.sh
+	./scripts/customize.sh
 
 package:
-	./package.sh
+	./scripts/package.sh
 
 .PHONY: all apps tools release deploy clean core package

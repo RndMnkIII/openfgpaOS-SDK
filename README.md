@@ -16,7 +16,7 @@ cd openfpgaOS-SDK
 ### 2. Check your toolchain
 
 ```bash
-./setup.sh
+./scripts/setup.sh
 ```
 
 You need a RISC-V GCC:
@@ -27,7 +27,7 @@ You need a RISC-V GCC:
 ### 3. Create your game
 
 ```bash
-./customize.sh
+./scripts/customize.sh
 ```
 
 Follow the prompts. This creates:
@@ -610,9 +610,10 @@ phdp logs                           # tail console output
 
 ```bash
 make firmware                        # rebuild OS
-phdp push --slot 1 build/Assets/openfpgaos/common/os.bin
-phdp reset && phdp wait && phdp logs
+./scripts/exec.sh build/Assets/openfpgaos/common/os.bin
 ```
+
+`exec.sh` starts the daemon if needed, clears pending slots, pushes the file (auto-detects slot 1 for `os.bin`, slot 2 for app ELFs), resets the core, and streams console output until Ctrl+C.
 
 ---
 
@@ -680,10 +681,11 @@ Place instance JSONs in `dist/<GameName>/instances/`. Files referenced by the in
 
 | Script | What it does |
 |--------|-------------|
-| `setup.sh` | Checks RISC-V toolchain is installed |
-| `customize.sh` | Creates a new game: stub source + core config |
-| `deploy.sh` | Copies `build/sdk/` to the Pocket SD card |
-| `package.sh` | ZIPs a game core for distribution |
+| `scripts/setup.sh` | Checks RISC-V toolchain is installed |
+| `scripts/customize.sh` | Creates a new game: stub source + core config |
+| `scripts/deploy.sh` | Copies `build/sdk/` to the Pocket SD card |
+| `scripts/package.sh` | ZIPs a game core for distribution |
+| `scripts/exec.sh` | Push binary via UART, reset core, stream output |
 
 **PHDP tools** (in `src/tools/phdp/`):
 
@@ -697,7 +699,7 @@ Place instance JSONs in `dist/<GameName>/instances/`. Files referenced by the in
 After `customize.sh`, your game can be packaged as its own Pocket menu entry:
 
 ```bash
-./package.sh GameName      # creates releases/GameName.zip
+./scripts/package.sh GameName      # creates releases/GameName.zip
 ```
 
 Users extract the ZIP to their SD card root.
@@ -713,7 +715,7 @@ When your game is ready for its own repository:
 ```bash
 git clone https://github.com/ThinkElastic/openfpgaOS-SDK.git MyGame
 cd MyGame
-./customize.sh    # creates game config + renames origin to sdk-upstream
+./scripts/customize.sh    # creates game config + renames origin to sdk-upstream
 git remote add origin git@github.com:YOU/MyGame.git
 ```
 
@@ -739,8 +741,8 @@ Only SDK-owned files change. Your game files won't conflict.
 
 ```bash
 make                          # build everything
-./package.sh                  # ZIPs SDK core + your standalone core
-./package.sh <GameName>       # ZIP just your standalone core
+./scripts/package.sh                  # ZIPs SDK core + your standalone core
+./scripts/package.sh <GameName>       # ZIP just your standalone core
 ```
 
 ---
@@ -788,6 +790,7 @@ openfpgaOS-SDK/
 ├── dist/
 │   ├── sdk/              <- Shared openfpgaOS core configs (SDK-owned)
 │   └── <GameName>/       <- YOUR standalone core (from customize.sh)
+├── scripts/              <- Build/deploy/packaging scripts (SDK-owned)
 ├── runtime/              <- FPGA bitstream, OS binary, loader (SDK-owned)
 └── build/                <- Build output (gitignored)
 ```
@@ -800,7 +803,7 @@ openfpgaOS-SDK/
 | `src/<gamename>/` | `src/apps/` |
 | `dist/<GameName>/` | `dist/sdk/` |
 | `.gitignore` | `runtime/` |
-| | `customize.sh`, `deploy.sh`, `package.sh`, `setup.sh` |
+| | `scripts/` |
 
 ---
 

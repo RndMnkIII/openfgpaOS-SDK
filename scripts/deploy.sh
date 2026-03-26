@@ -6,8 +6,8 @@
 # Auto-detects the SD card or uses the path provided.
 #
 # Usage:
-#   ./deploy.sh                     Auto-detect Pocket SD card
-#   ./deploy.sh /mnt/sdcard         Deploy to specific path
+#   ./scripts/deploy.sh                     Auto-detect Pocket SD card
+#   ./scripts/deploy.sh /mnt/sdcard         Deploy to specific path
 #
 
 set -e
@@ -17,7 +17,7 @@ CYAN='\033[96m'
 YELLOW='\033[93m'
 RESET='\033[0m'
 
-SDK_DIR="$(cd "$(dirname "$0")" && pwd)"
+SDK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME="$SDK_DIR/runtime"
 CORE_ID="ThinkElastic.openfpgaOS"
 PLATFORM="openfpgaos"
