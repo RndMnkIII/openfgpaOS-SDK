@@ -41,6 +41,16 @@ make               # builds all apps → build/sdk/
 make deploy         # copies to Pocket SD card
 ```
 
+### 5. Build PHDP tools (optional)
+
+For UART-based development with a DevKey cartridge:
+
+```bash
+cd src/tools/phdp
+make
+sudo make install   # installs phdpd + phdp to /usr/local/bin
+```
+
 ---
 
 ## Writing Your Game
@@ -230,6 +240,14 @@ uint16_t *fb16 = of_video_surface16();   // Use for 16-bit modes
 | RGB565 | 153,600 B | 0.5 (16-bit per pixel) |
 | RGB555 | 153,600 B | 0.5 |
 | RGBA5551 | 153,600 B | 0.5 (bit 0 = alpha) |
+
+**Display mode:**
+
+```c
+of_video_set_display_mode(0);    // Terminal only (text console)
+of_video_set_display_mode(1);    // Framebuffer only (default after of_video_init)
+of_video_set_display_mode(2);    // Overlay: white terminal text over framebuffer
+```
 
 **Blitting helpers:**
 
@@ -542,6 +560,62 @@ uint32_t v = of_get_version();     // Runtime API version from kernel
 
 ---
 
+## UART Development (PHDP)
+
+The **Pocket-Host Debug Protocol** streams binaries over UART at 2 Mbaud, bypassing the SD card for rapid iteration. Requires a DevKey cartridge connected via USB-UART adapter.
+
+### Architecture
+
+Two host-side tools in `src/tools/phdp/`:
+
+- **`phdpd`** — background daemon that owns the UART connection and manages protocol state
+- **`phdp`** — CLI client that talks to the daemon via Unix socket
+
+### Workflow
+
+```bash
+# Start the daemon (once)
+phdpd                               # auto-detects /dev/ttyUSB0
+phdpd -d /dev/ttyACM0               # or specify device
+
+# Queue files for the next boot
+phdp push --slot 1 build/Assets/openfpgaos/common/os.bin
+phdp push --slot 2 build/Assets/openfpgaos/common/myapp.elf
+
+# Reboot the core and stream
+phdp reset
+phdp wait                           # blocks until OS is running
+phdp logs                           # tail console output
+```
+
+### Protocol phases
+
+1. **Discovery** (250ms) — Pocket broadcasts `EVT_BOOT_ALIVE` over UART. If no host responds, boots from SD.
+2. **Override** (200ms per slot) — before loading each data slot, Pocket asks the host. Host responds with `RES_STREAM` (send over UART) or `RES_USE_SD` (load from SD).
+3. **Streaming** — host sends `DATA_CHUNK` packets (up to 512B), Pocket ACKs with `REPORT_PROGRESS`. CRC-16/CCITT on every packet.
+4. **Monitoring** — after `EVT_EXEC_START`, terminal output is mirrored to UART as raw ASCII.
+
+### CLI commands
+
+| Command | Description |
+|---------|-------------|
+| `phdp status` | Connection state, queued slots, transfer progress |
+| `phdp push --slot N file` | Queue binary for slot N |
+| `phdp clear [--slot N]` | Clear queued overrides |
+| `phdp reset` | Reboot the RISC-V core |
+| `phdp wait` | Block until OS is running |
+| `phdp logs [--last N]` | Tail or show last N lines of console output |
+
+### Typical dev loop
+
+```bash
+make firmware                        # rebuild OS
+phdp push --slot 1 build/Assets/openfpgaos/common/os.bin
+phdp reset && phdp wait && phdp logs
+```
+
+---
+
 ## Data Slot Layout
 
 The APF framework uses data slots to map SD card files to bridge memory regions. Your `data.json` defines the layout:
@@ -610,6 +684,13 @@ Place instance JSONs in `dist/<GameName>/instances/`. Files referenced by the in
 | `customize.sh` | Creates a new game: stub source + core config |
 | `deploy.sh` | Copies `build/sdk/` to the Pocket SD card |
 | `package.sh` | ZIPs a game core for distribution |
+
+**PHDP tools** (in `src/tools/phdp/`):
+
+| Tool | What it does |
+|------|-------------|
+| `phdpd` | Background daemon — owns UART, manages PHDP protocol |
+| `phdp` | CLI client — push binaries, reset, tail logs |
 
 ### Packaging a standalone game
 
@@ -689,6 +770,8 @@ openfpgaOS-SDK/
 │   │   ├── bramdemo/     <- BRAM hot-path benchmarking
 │   │   ├── celeste/      <- Full game example
 │   │   ├── colordemo/    <- Video color mode demo (all 6 modes)
+│   │   ├── cray/         <- Real-time C raytracer
+│   │   ├── cxxdemo/      <- C++ classes, templates, iostream
 │   │   ├── fbdemo/       <- PNG framebuffer display
 │   │   ├── interactdemo/ <- Pocket menu variables
 │   │   ├── mididemo/     <- MIDI playback (of_midi library, 18-ch OPL3)

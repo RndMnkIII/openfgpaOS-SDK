@@ -733,28 +733,14 @@ static int uart_read_available(void) {
      * we see STX (0x02) which means the Pocket rebooted and is sending
      * EVT_BOOT_ALIVE — switch back to PHDP parsing. */
     if (G.state == PHDP_STATE_MONITORING) {
-        /* In raw console mode: only the NEW bytes are console output.
-         * Check only the new bytes for STX (Pocket reboot indicator). */
+        /* Raw console mode: all new bytes go to log.
+         * Reboot detection happens when poll sees no data for 2+ seconds
+         * and then receives a valid BOOT_ALIVE packet. */
         const uint8_t *new_data = G.uart_rx + G.uart_rx_len - (uint32_t)n;
-        int has_stx = 0;
-        for (ssize_t i = 0; i < n; i++)
-            if (new_data[i] == PHDP_STX) { has_stx = 1; break; }
-
-        if (has_stx) {
-            /* Reboot detected — flush buffer and switch to PHDP parsing */
-            G.uart_rx_len = 0;
-            /* Re-add only the new data for PHDP parsing */
-            memcpy(G.uart_rx, new_data, (size_t)n);
-            G.uart_rx_len = (uint32_t)n;
-            set_state(PHDP_STATE_LISTENING);
-            uart_process_rx();
-        } else {
-            /* Raw console output */
-            logv("[console] %zd bytes: %.*s\n", n, (int)(n > 60 ? 60 : n), (const char *)new_data);
-            log_ring_write((const char *)new_data, (uint32_t)n);
-            log_ring_broadcast((const char *)new_data, (uint32_t)n);
-            G.uart_rx_len = 0;  /* consume everything */
-        }
+        logv("[console] %zd bytes: %.*s\n", n, (int)(n > 60 ? 60 : n), (const char *)new_data);
+        log_ring_write((const char *)new_data, (uint32_t)n);
+        log_ring_broadcast((const char *)new_data, (uint32_t)n);
+        G.uart_rx_len = 0;
     } else {
         uart_process_rx();
         /* After EXEC_START processing, flush leftover RX buffer */
@@ -788,18 +774,20 @@ static void ipc_send_status(int client_fd) {
 
 static void ipc_handle_push(int client_fd, const phdp_ipc_req_t *req) {
     uint8_t slot = req->slot;
+    uint8_t ack;
+
     if (slot >= PHDP_MAX_SLOTS) {
-        const char *err = "ERR: invalid slot\n";
-        (void)write(client_fd, err, strlen(err));
+        logv("[ipc] push: invalid slot %u\n", slot);
+        ack = 1;
+        (void)write(client_fd, &ack, 1);
         return;
     }
 
     /* Verify file exists */
     if (access(req->path, R_OK) != 0) {
-        char buf[300];
-        int n = snprintf(buf, sizeof(buf), "ERR: cannot read %s: %s\n",
-                         req->path, strerror(errno));
-        (void)write(client_fd, buf, (size_t)n);
+        logv("[ipc] push: cannot read %s: %s\n", req->path, strerror(errno));
+        ack = 2;
+        (void)write(client_fd, &ack, 1);
         return;
     }
 
@@ -808,8 +796,8 @@ static void ipc_handle_push(int client_fd, const phdp_ipc_req_t *req) {
     snprintf(G.push_queue[slot].path, sizeof(G.push_queue[slot].path), "%s", req->path);
     queue_save();
 
-    const char *ok = "OK\n";
-    (void)write(client_fd, ok, 3);
+    ack = 0;
+    (void)write(client_fd, &ack, 1);
     logv("[ipc] push slot %u <- %s\n", slot, req->path);
 }
 
@@ -826,8 +814,8 @@ static void ipc_handle_clear(int client_fd, const phdp_ipc_req_t *req) {
     }
     queue_save();
 
-    const char *ok = "OK\n";
-    (void)write(client_fd, ok, 3);
+    uint8_t ack_c = 0;
+    (void)write(client_fd, &ack_c, 1);
 }
 
 static void ipc_handle_reset(int client_fd) {
@@ -841,8 +829,8 @@ static void ipc_handle_reset(int client_fd) {
         set_state(PHDP_STATE_LISTENING);
     }
 
-    const char *ok = "OK\n";
-    (void)write(client_fd, ok, 3);
+    uint8_t ack_r = 0;
+    (void)write(client_fd, &ack_r, 1);
 }
 
 static void ipc_handle_wait(int client_idx) {
