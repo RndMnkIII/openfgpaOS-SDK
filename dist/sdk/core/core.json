@@ -3,14 +3,14 @@
         "magic": "APF_VER_1",
         "metadata": {
             "platform_ids": [
-                "openfpgaos"
+                "raytracertnw"
             ],
-            "shortname": "openfpgaOS",
-            "description": "openfpgaOS on VexRiscv RISC-V CPU",
-            "author": "ThinkElastic",
+            "shortname": "RaytracerTNW",
+            "description": "C++ Raytracer The Next Week",
+            "author": "RndMnkIII",
             "url": "",
             "version": "0.1",
-            "date_release": "2026-03-12"
+            "date_release": "2026-03-29"
         },
         "framework": {
             "target_product": "Analogue Pocket",
