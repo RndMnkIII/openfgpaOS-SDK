@@ -13,43 +13,49 @@ static void draw_hline(int w, int sep, char left, char mid, char right) {
     printf("%c\n", right);
 }
 
+/* Chip32 slot table in CRAM (0x30000000, written by loader via bridge 0x20000000)
+ * Format per entry: [0] magic 0x534C4F54 ("SLOT")
+ *                   [4] slot_id
+ *                   [8] status (0=missing, other=file size)
+ *                   [12] reserved
+ * End marker: 0xFFFFFFFF */
+#define CRAM_TABLE_BASE  0x30000000
+#define SLOT_MAGIC       0x534C4F54
+
+typedef struct {
+    uint32_t magic;
+    uint32_t slot_id;
+    uint32_t status;
+    uint32_t reserved;
+} chip32_slot_entry_t;
+
 int main(void) {
-    /* Register the slots this instance uses so the table has entries to show.
-     * In a real app, register your data files at startup so fopen() can find them. */
     of_file_slot_register(1, "os.bin");
     of_file_slot_register(2, "slotdemo.elf");
 
-    printf("\033[2J\033[H");  /* clear screen, cursor home */
+    printf("\033[2J\033[H");
+    printf("\n CRAM Test\n\n");
 
-    int count = of_file_slot_count();
+    /* CPU write test */
+    volatile uint32_t *ct = (volatile uint32_t *)0x30000400;
+    ct[0] = 0xDEADBEEF;
+    ct[1] = 0xCAFEBABE;
+    __asm__ volatile("fence" ::: "memory");
+    printf(" CPU: %08X %08X %s\n",
+           (unsigned)ct[0], (unsigned)ct[1],
+           (ct[0] == 0xDEADBEEF) ? "OK" : "FAIL");
 
-    printf("\n  openfpgaOS File Slot Registry\n\n");
-    printf("  Registered file slots: %d\n\n", count);
-
-    if (count == 0) {
-        printf("  (none)\n");
-    } else {
-        int sep = 7;
-        int w = 37;
-
-        draw_hline(w, sep, ACS_ULCORNER, ACS_TTEE, ACS_URCORNER);
-
-        printf("  %c  ID  %c  Filename                  %c\n",
-               ACS_VLINE, ACS_VLINE, ACS_VLINE);
-
-        draw_hline(w, sep, ACS_LTEE, ACS_PLUS, ACS_RTEE);
-
-        for (int i = 0; i < count; i++) {
-            of_file_slot_t slot;
-            if (of_file_slot_get(i, &slot) < 0)
-                continue;
-            printf("  %c %3d  %c  %-25s %c\n",
-                   ACS_VLINE, (int)slot.slot_id, ACS_VLINE,
-                   slot.filename, ACS_VLINE);
-        }
-
-        draw_hline(w, sep, ACS_LLCORNER, ACS_BTEE, ACS_LRCORNER);
+    /* Chip32 slot table */
+    volatile chip32_slot_entry_t *t = (volatile chip32_slot_entry_t *)CRAM_TABLE_BASE;
+    printf(" C32:");
+    int n = 0;
+    for (int i = 0; i < 20 && t[i].magic != 0xFFFFFFFF; i++) {
+        if (i < 4)
+            printf(" %08X", (unsigned)t[i].magic);
+        n++;
     }
+    printf("\n %d entries %s\n",
+           n, (n > 0 && t[0].magic == SLOT_MAGIC) ? "OK" : "FAIL");
 
     while (1)
         of_delay_ms(100);
